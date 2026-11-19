@@ -1,0 +1,48 @@
+# ==============================================================================
+# Project Phase I (2026-27) - Requirements Specification
+# Project: Jamee (जमी / ज़मी) — AI Crop-Care Assistant
+# 
+# Team Members:
+#   1. SARANG KADAM         - Roll No: 124
+#   2. SHIVAM JATALE        - Roll No: 114
+#   3. HARSHVARDHAN DESHMUKH - Roll No: 140
+#   4. SAMADHAN KAMBLE      - Roll No: 128
+# ==============================================================================
+
+# System Runtime Environment
+Node.js>=22.12.0
+npm>=10.0.0
+
+# Application Framework & Core Libraries (package.json dependencies)
+next==16.3.5
+react==19.3.0
+react-dom==19.3.0
+mongodb==7.6.0
+better-auth==1.7.6
+@better-auth/mongo-adapter==1.7.6
+@google/genai==2.22.0
+groq-sdk==1.6.0
+zod==4.6.5
+@vercel/functions==3.9.7
+
+# Development, Testing & Verification Tools (devDependencies)
+typescript==6.0.3
+vite==8.3.0
+vitest==5.0.0
+@vitejs/plugin-react==6.1.1
+@types/node==26.5.1
+@types/react==19.3.0
+@types/react-dom==19.3.0
+eslint==9.39.5
+eslint-config-next==16.3.5
+fast-check==4.10.0
+mongodb-memory-server==11.3.0
+axe-core==4.13.0
+jsdom==29.1.1
+
+# Cloud Infrastructure & External Services Required:
+# - MongoDB Atlas (M0 Free Tier Replica Set or higher)
+# - Google Gemini API (Google Gemini 3.8 Flash model for multimodal diagnosis)
+# - Groq Cloud API (Whisper LPU Inference STT and fallback text LLM)
+# - Telegram Bot API (Optional channel integration for @Jamee_team_bot)
+# - Razorpay API (Payment gateway integration for entitlements)

@@ -1,0 +1,281 @@
+# =============================================================================
+# Jamee — CI release gates (Requirement 17.8, task 63.5 / Amendment A3)
+# =============================================================================
+#
+# WHAT THIS GATES. Requirement 17.8 makes "compiles under TypeScript strict mode with no type
+# errors" a release gate, and the design says it is "enforced in CI". Amendment A3's gate set is:
+# `tsc --noEmit`, lint, the three static guards (`check:secret-scope`, `check:shared-implementation`,
+# `check:data-access`), the unit/property/integration suites, the accessibility scan (inside the
+# unit suite), and `next build`.
+#
+# WHEN IT RUNS. Every `push` to any branch and every `pull_request`. Plus `workflow_dispatch`.
+#
+# HOW IT BLOCKS — READ THIS. A failing run reports failure, but GitHub does not refuse a merge on
+# that alone. Making these gates actually block requires a branch-protection rule (or ruleset) on
+# the default branch listing BOTH job names below as required status checks:
+#
+#     Static, unit and property gates
+#     Integration suite (mongodb-memory-server)
+#
+# That is a repository setting, not something a workflow file can assert. Until it is enabled these
+# are advisory checks, not gates. Whoever sets up the repository owns that step.
+#
+# NODE VERSION. `package.json` engines is `^22.12.0 || >=24.0.0`. CI pins the 24 line, because:
+#   - it satisfies the `>=24.0.0` half of engines and matches the development machine;
+#   - `scripts/check-*.ts` and `scripts/db-setup.ts` run under `node --experimental-strip-types`,
+#     REQUIRED on 22.12 and an accepted no-op on 24, so a 24 run exercises the flag-free semantics
+#     the scripts will have long-term while the same command line still works on 22.
+# GAP, stated rather than hidden: the LOWER bound of engines (22.12) is NOT exercised here. A
+# regression that only appears on Node 22 would pass. A 22/24 matrix is the fix if the project keeps
+# supporting 22; it doubles the run and buys nothing for the release, which runs on one runtime.
+#
+# SECRETS. None. `npm run build` succeeds with ZERO environment configured — every page and route
+# handler is dynamic and `src/lib/env.ts` validates on first use, so nothing reads a variable at
+# build time. Under Amendment A3 there is no Supabase CLI, no local stack, and no demo keys of any
+# kind in this file: the integration suite runs entirely in-process against `mongodb-memory-server`.
+#
+# DELIBERATELY NOT A GATE — `npm run check:deployment`. It asserts facts about a LIVE deployment (a
+# real MongoDB Atlas cluster, a deployed HTTPS origin, and the Telegram `getWebhookInfo` surface)
+# and SKIPS every part whose input is absent, so on an unconfigured runner it would assert nothing.
+# Its home is `docs/DEPLOYMENT.md`, run by an operator against the deployment it describes.
+#
+# THE ACCESSIBILITY SCAN IS GATED BY THE "Unit suite" STEP. `tests/unit/accessibility.test.tsx`
+# runs in the vitest `unit` project, so `npm run test:unit` is what fails a build on an
+# accessibility violation, and no separate step runs a scan of its own. An automated scan is not
+# WCAG conformance — the scan prints its own limits on every run (no contrast under jsdom, the
+# detail screen unscanned, the manual screen-reader pass still outstanding).
+#
+# ACTION PINS. GitHub-authored actions are pinned to a major tag, which is the version GitHub
+# documents and which picks up security patches without an edit.
+
+name: Release gates
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# One in-flight run per ref. A superseded push does not need its gates finished.
+concurrency:
+  group: release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # See NODE VERSION above. Major-only so patch updates arrive without a workflow edit.
+  NODE_VERSION: '24'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 — everything that needs no external service.
+  #
+  # Ordered cheapest-signal-first: the type check and the three static guards fail in seconds and
+  # cover Requirement 17.8 and the architecture rules directly, so a broken build is reported
+  # before the test suites run.
+  # ---------------------------------------------------------------------------
+  gates:
+    name: Static, unit and property gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      # Requirement 17.8, stated literally. THE release gate the requirement names, so it runs first.
+      - name: Type check — tsc --noEmit under strict mode
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Requirement 13.7. Under A3 this guards MONGODB_URI, the Better Auth secret, the Google
+      # client credentials, and the Telegram/Razorpay/Gemini/Groq/CRON secrets — server-only, never
+      # in a 'use client' module, and the unprefixed RAZORPAY_KEY_ID never in a client component.
+      - name: Guard — secret scope
+        run: npm run check:secret-scope
+
+      # Requirements 3.8, 7.7, 16.1–16.4, 22.17, 1.9. The single-implementation claims, the
+      # entitlement-gate isolation, and profiles.phone reader-freedom are structural, so the design
+      # verifies them with this static check rather than a property test.
+      - name: Guard — single shared implementation, entitlement isolation, phone reader-freedom
+        run: npm run check:shared-implementation
+
+      # Requirement 13.7 / D18. Tenant isolation is application-enforced under A3: the mongodb driver
+      # and the raw handle may live only under src/lib/db/**. This is the guard that proves it, the
+      # sibling of check:secret-scope.
+      - name: Guard — data-access-layer boundary
+        run: npm run check:data-access
+
+      - name: Unit suite
+        run: npm run test:unit
+
+      - name: Property suite
+        run: npm run test:property
+
+      # Last because it is the slowest and everything above is a stricter signal. It also re-runs
+      # the type check inside `next build`, a free cross-check of the gate above.
+      - name: Production build
+        run: npm run build
+
+      # -----------------------------------------------------------------------
+      # The accessibility scan EXISTS and the "Unit suite" step above gates it.
+      # `tests/unit/accessibility.test.tsx` runs in the vitest `unit` project: an axe violation on
+      # any scanned screen fails that step. This step wires no scan of its own — it asserts the two
+      # facts whose absence would make that gate disappear with nothing turning red.
+      # -----------------------------------------------------------------------
+      - name: Assert the accessibility scan is present and gated
+        run: |
+          set -euo pipefail
+
+          if ! grep -Eq '"(axe-core|jest-axe|vitest-axe|@axe-core/[a-z0-9-]+|pa11y|pa11y-ci)"[[:space:]]*:' package.json; then
+            echo "::error title=No accessibility engine::The scan needs one and package.json declares none, so the 'Unit suite' step cannot be gating accessibility. Restore the dependency or say so here instead of leaving a green run that looks like coverage."
+            exit 1
+          fi
+
+          if [ ! -f tests/unit/accessibility.test.tsx ]; then
+            echo "::error title=Accessibility scan is missing::tests/unit/accessibility.test.tsx is gone. The vitest unit project glob is what gates the scan, and an absent file is a silently passing suite rather than a failing one."
+            exit 1
+          fi
+
+          echo "::notice title=Accessibility scan is gated by the unit suite::tests/unit/accessibility.test.tsx runs axe-core over the sign-in, diagnose, chat, voice and history screens in all three languages, and fails the 'Unit suite' step on a violation. It is NOT WCAG conformance: contrast is not evaluated under jsdom, the diagnosis detail screen is not scanned, and full conformance still requires the manual screen-reader pass tracked in task 30.1."
+
+      - name: Record what this run did and did not gate
+        if: always()
+        run: |
+          {
+            echo '## Jamee release gates (Amendment A3)'
+            echo
+            echo "Node \`${NODE_VERSION}\` · no environment configured · no secrets used"
+            echo
+            echo '### Gated here'
+            echo '- `tsc --noEmit` (strict) — Requirement 17.8'
+            echo '- `eslint .`'
+            echo '- `check:secret-scope` — Requirement 13.7'
+            echo '- `check:shared-implementation` — Requirements 3.8, 7.7, 16.1–16.4, 22.17, 1.9'
+            echo '- `check:data-access` — Requirement 13.7 / D18 (the Data_Access_Layer boundary)'
+            echo '- unit suite · property suite'
+            echo '- **accessibility scan** — `tests/unit/accessibility.test.tsx`, inside the unit suite'
+            echo '- `next build`'
+            echo
+            echo '### Gated in the second job'
+            echo '- integration suite, in-process against mongodb-memory-server, with an assertion that it actually executed'
+            echo
+            echo '### NOT gated, and why'
+            echo '- **WCAG conformance** — the scan above is automated only'
+            echo '- **`check:deployment`** — needs a live Atlas cluster and a deployed origin; belongs to `docs/DEPLOYMENT.md`'
+            echo '- **Node 22.12** — the lower bound of `engines`; CI runs the 24 line only'
+            echo '- **manual validation** — Google sign-in on a device, hi/mr transcription quality, Telegram end to end, one real checkout, screen-reader pass (`docs/TESTING_REPORT.md`)'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Job 2 — the integration suite, in-process against mongodb-memory-server.
+  #
+  # WHY A SEPARATE JOB. The suite starts a MongoDB replica set through `mongodb-memory-server`
+  # (V31), which downloads a real MongoDB binary on first run. Isolating it keeps that cost off the
+  # fast static/unit job and lets it cache the binary independently.
+  #
+  # WHY A REPLICA SET. The linking consume-and-bind and the payment grant-plus-extend run inside
+  # multi-document transactions (D19), and MongoDB transactions require a replica set (V33).
+  # `tests/integration/mongo.ts` starts a single-node one; there is no external Postgres, no Docker,
+  # and no local Supabase stack anymore.
+  #
+  # WHY `needs: gates`. No value in paying the binary download for a tree that does not type check.
+  #
+  # WHY IT IS NOT ALLOWED TO SELF-SKIP. `tests/integration/mongo.ts` always tries to start the
+  # server and RETHROWS on a failed binary download rather than skipping (the harness is explicit
+  # that a skipped suite is a broken gate, not coverage). The final step below also reads the run's
+  # JSON report and FAILS when zero tests executed, so a download or startup problem shows up as a
+  # red job rather than a false green.
+  #
+  # THE BINARY CACHE. `mongodb-memory-server` downloads its binary to `~/.cache/mongodb-binaries`
+  # (its default on Linux). Caching that directory across runs turns a ~30s first-run download into
+  # a cache hit. The cache key is keyed on the lockfile so a version bump re-downloads.
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Integration suite (mongodb-memory-server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: gates
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      # Cache the downloaded MongoDB binary so only the first run pays the download. Keyed on the
+      # lockfile: bumping mongodb-memory-server changes the binary and re-downloads.
+      - name: Cache the mongodb-memory-server binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            mongodb-binaries-${{ runner.os }}-
+
+      # `default` keeps the log readable; `json` produces the report the next step audits. The suite
+      # starts its own in-memory replica set (V31/V33) — no environment is exported and no service
+      # is provisioned, because there is nothing external to point it at.
+      - name: Integration suite
+        run: |
+          npm run test:integration -- \
+            --reporter=default \
+            --reporter=json \
+            --outputFile.json="${RUNNER_TEMP}/integration-report.json"
+
+      # The gate on the gate. A vitest run in which every test was skipped exits 0, so without this
+      # a harness that failed to start its replica set would look like passing coverage. `if:
+      # always()` so the audit still reports when the suite itself failed.
+      - name: Assert the integration suite actually executed
+        if: always()
+        run: |
+          set -euo pipefail
+          node -e '
+            const { readFileSync, existsSync } = require("node:fs");
+            const path = process.argv[1];
+
+            if (!existsSync(path)) {
+              console.error("::error title=No integration report::The suite produced no JSON report, so whether it ran cannot be established. Treating that as a failed gate.");
+              process.exit(1);
+            }
+
+            const report = JSON.parse(readFileSync(path, "utf8"));
+            const passed = report.numPassedTests ?? 0;
+            const failed = report.numFailedTests ?? 0;
+            const skipped = report.numPendingTests ?? 0;
+            console.log(`integration: ${passed} passed, ${failed} failed, ${skipped} skipped`);
+
+            if (failed > 0) {
+              console.error(`::error title=Integration tests failed::${failed} test(s) failed.`);
+              process.exit(1);
+            }
+
+            if (passed === 0) {
+              console.error("::error title=Integration suite did not run::Zero tests executed. The suite runs against mongodb-memory-server in replica-set mode; a run that executed nothing is a broken gate rather than passing coverage. Check the binary download and the harness startup in tests/integration/mongo.ts.");
+              process.exit(1);
+            }
+
+            if (skipped > 0) {
+              console.log(`::warning title=Skipped integration tests::${skipped} test(s) were skipped and are not covered by this run.`);
+            }
+          ' "${RUNNER_TEMP}/integration-report.json"

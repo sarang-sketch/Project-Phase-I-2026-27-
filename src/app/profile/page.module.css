@@ -1,0 +1,29 @@
+.profileGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  max-width: 66rem;
+}
+
+.settingsCard {
+  padding: clamp(1.1rem, 3vw, 1.5rem);
+  color: #1e293b;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+.accessColumn {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@media (width >= 52rem) {
+  .profileGrid {
+    grid-template-columns: minmax(18rem, 0.85fr) minmax(22rem, 1.15fr);
+  }
+}

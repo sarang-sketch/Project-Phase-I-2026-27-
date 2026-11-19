@@ -1,0 +1,59 @@
+.recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hold,
+.toggle {
+  min-height: var(--tap-target-min);
+  min-width: var(--tap-target-min);
+  padding: 0.7rem 1rem;
+  border-radius: 0.9rem;
+  font-family: inherit;
+  font-size: 1.0625rem;
+  font-weight: 750;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.hold {
+  min-height: 5rem;
+  color: #ffffff;
+  background: linear-gradient(135deg, #166534, #15803d);
+  border: 1px solid #14532d;
+  box-shadow: 0 0.8rem 1.75rem rgba(22, 101, 52, 0.2);
+}
+
+.toggle {
+  color: #14532d;
+  background-color: #f0fdf4;
+  border: 1px solid #86efac;
+}
+
+.hold:disabled,
+.toggle:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.hold:focus-visible,
+.toggle:focus-visible {
+  outline: 3px solid #86efac;
+  outline-offset: 2px;
+}
+
+.recording {
+  background: #14532d;
+  border: 0.25rem solid #86efac;
+  box-shadow: none;
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 0;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

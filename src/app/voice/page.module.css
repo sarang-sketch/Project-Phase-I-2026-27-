@@ -1,0 +1,29 @@
+.voiceCard {
+  max-width: 42rem;
+  padding: clamp(1.1rem, 4vw, 2rem);
+  color: #1e293b;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(187, 247, 208, 0.65), transparent 18rem),
+    #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+.microphone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 1.25rem;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 1.1rem;
+}
+
+.microphone svg {
+  width: 1.65rem;
+  height: 1.65rem;
+}
